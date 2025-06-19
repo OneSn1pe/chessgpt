@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Chess vs GPT-4 with Chat and PGN</title>
+        <style>
+            body {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                min-height: 100vh;
+                margin: 0;
+                background-color: #f0f0f0;
+                font-family: Arial, sans-serif;
+            }
+
+            header {
+                background-color: #333;
+                color: white;
+                padding: 1rem;
+                text-align: center;
+                width: 100%;
+                box-sizing: border-box;
+            }
+
+            nav {
+                margin-top: 1rem;
+            }
+
+            nav a {
+                color: white;
+                text-decoration: none;
+                margin: 0 1rem;
+            }
+
+            #game-container {
+                display: flex;
+                gap: 20px;
+                margin-top: 20px;
+                padding: 20px;
+            }
+
+            #chessboard {
+                display: grid;
+                grid-template-columns: repeat(8, 50px);
+                grid-template-rows: repeat(8, 50px);
+                border: 2px solid #333;
+                background-color: #fff;
+            }
+
+            .square {
+                width: 50px;
+                height: 50px;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                font-size: 40px;
+                cursor: pointer;
+                user-select: none;
+            }
+
+            .white {
+                background-color: #f0d9b5;
+            }
+
+            .black {
+                background-color: #b58863;
+            }
+
+            .selected {
+                background-color: #7fc97f;
+            }
+
+            .possible-move {
+                background-color: #7fc97f80;
+            }
+
+            #status {
+                margin-top: 10px;
+                font-size: 18px;
+                font-weight: bold;
+                text-align: center;
+            }
+
+            #restart-button {
+                margin-top: 10px;
+                padding: 10px 20px;
+                font-size: 16px;
+                cursor: pointer;
+                display: block;
+                margin: 10px auto;
+            }
+
+            #chat-container {
+                width: 300px;
+                height: 400px;
+                border: 1px solid #ccc;
+                display: flex;
+                flex-direction: column;
+                background-color: #fff;
+            }
+
+            #chat-messages {
+                flex-grow: 1;
+                overflow-y: auto;
+                padding: 10px;
+                background-color: #fff;
+            }
+
+            #chat-input {
+                display: flex;
+                padding: 10px;
+                border-top: 1px solid #ccc;
+            }
+
+            #chat-text {
+                flex-grow: 1;
+                margin-right: 10px;
+                padding: 5px;
+            }
+
+            #pgn-container {
+                width: 200px;
+                height: 400px;
+                border: 1px solid #ccc;
+                overflow-y: auto;
+                padding: 10px;
+                background-color: #fff;
+            }
+
+            #move-counter {
+                margin-top: 10px;
+                font-size: 16px;
+                text-align: center;
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <h1>Chess vs GPT-4</h1>
+            <nav>
+                <a href="#" onclick="restartGame(); return false;">New Game</a>
+                <a
+                    href="about.html"
+                    
+                    >About</a
+                >
+            </nav>
+        </header>
+        <div id="game-container">
+            <div id="pgn-container"></div>
+            <div>
+                <div id="chessboard"></div>
+                <div id="status">White's turn</div>
+                <div id="move-counter">Move: 1</div>
+                <button id="restart-button">Restart Game</button>
+            </div>
+            <div id="chat-container">
+                <div id="chat-messages"></div>
+                <div id="chat-input">
+                    <input
+                        type="text"
+                        id="chat-text"
+                        placeholder="Ask about the game..."
+                    />
+                    <button id="chat-send">Send</button>
+                </div>
+            </div>
+        </div>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+        <script>
+            // Initialize the game
+            const board = document.getElementById("chessboard");
+            const statusEl = document.getElementById("status");
+            const restartButton = document.getElementById("restart-button");
+            const chatMessages = document.getElementById("chat-messages");
+            const chatText = document.getElementById("chat-text");
+            const chatSend = document.getElementById("chat-send");
+            const pgnContainer = document.getElementById("pgn-container");
+            const moveCounter = document.getElementById("move-counter");
+            let selectedSquare = null;
+            let game = new Chess();
+            let lastMove = null;
+            let moveCount = 1;
+
+            // Create the board immediately when the page loads
+            createBoard();
+
+            function createBoard() {
+                board.innerHTML = "";
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        const square = document.createElement("div");
+                        square.className = `square ${(row + col) % 2 === 0 ? "white" : "black"}`;
+                        square.dataset.square =
+                            String.fromCharCode(97 + col) + (8 - row);
+                        square.addEventListener("click", handleClick);
+                        board.appendChild(square);
+                    }
+                }
+                updateBoard();
+            }
+
+            function updateBoard() {
+                const squares = board.querySelectorAll(".square");
+                squares.forEach((square) => {
+                    const piece = game.get(square.dataset.square);
+                    square.textContent = piece
+                        ? getUnicodePiece(piece.type, piece.color)
+                        : "";
+                });
+            }
+
+            function getUnicodePiece(type, color) {
+                const pieces = {
+                    p: ["♙", "♟"],
+                    r: ["♖", "♜"],
+                    n: ["♘", "♞"],
+                    b: ["♗", "♝"],
+                    q: ["♕", "♛"],
+                    k: ["♔", "♚"],
+                };
+                return pieces[type][color === "w" ? 0 : 1];
+            }
+
+            // For demo purposes, simulate GPT responses
+            async function makeGPTMove() {
+                try {
+                    const response = await fetch("/api/gpt-move", {
+                        // Note: removed http://localhost:3000
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            fen: game.fen(),
+                            lastMove: lastMove ? lastMove.san : null,
+                        }),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error("Failed to get move from GPT");
+                    }
+
+                    const data = await response.json();
+                    const move = data.move;
+
+                    // Verify the move is legal
+                    if (game.moves().includes(move)) {
+                        lastMove = game.move(move);
+                        updateBoard();
+                        updateStatus();
+                        updatePGN();
+                        updateMoveCounter();
+                    } else {
+                        console.error("Invalid move received from GPT:", move);
+                        // Fallback to random move if GPT provides invalid move
+                        const legalMoves = game.moves();
+                        const randomMove =
+                            legalMoves[
+                                Math.floor(Math.random() * legalMoves.length)
+                            ];
+                        lastMove = game.move(randomMove);
+                        updateBoard();
+                        updateStatus();
+                        updatePGN();
+                        updateMoveCounter();
+                    }
+                } catch (error) {
+                    console.error("Error making GPT move:", error);
+                    statusEl.textContent =
+                        "Error getting move from GPT-4. Trying random move...";
+
+                    // Fallback to random move
+                    const legalMoves = game.moves();
+                    const randomMove =
+                        legalMoves[
+                            Math.floor(Math.random() * legalMoves.length)
+                        ];
+                    lastMove = game.move(randomMove);
+                    updateBoard();
+                    updateStatus();
+                    updatePGN();
+                    updateMoveCounter();
+                }
+            }
+
+            // Handle click events on squares
+            function handleClick(event) {
+                if (game.turn() === "b") return; // Prevent moving black pieces
+
+                const square = event.target.dataset.square;
+                if (selectedSquare) {
+                    const move = game.move({
+                        from: selectedSquare,
+                        to: square,
+                        promotion: "q",
+                    });
+                    if (move) {
+                        lastMove = move;
+                        updateBoard();
+                        clearHighlights();
+                        selectedSquare = null;
+                        updatePGN();
+                        updateMoveCounter();
+                        if (!game.game_over()) {
+                            statusEl.textContent =
+                                "Black's turn (GPT-4 thinking...)";
+                            setTimeout(makeGPTMove, 500);
+                        } else {
+                            updateStatus();
+                        }
+                    } else {
+                        clearHighlights();
+                        highlightSquare(square);
+                        highlightPossibleMoves(square);
+                        selectedSquare = square;
+                    }
+                } else {
+                    const piece = game.get(square);
+                    if (piece && piece.color === "w") {
+                        clearHighlights();
+                        highlightSquare(square);
+                        highlightPossibleMoves(square);
+                        selectedSquare = square;
+                    }
+                }
+            }
+
+            function highlightSquare(square) {
+                const squareEl = board.querySelector(
+                    `[data-square="${square}"]`,
+                );
+                if (squareEl) squareEl.classList.add("selected");
+            }
+
+            function highlightPossibleMoves(square) {
+                const moves = game.moves({ square: square, verbose: true });
+                moves.forEach((move) => {
+                    const squareEl = board.querySelector(
+                        `[data-square="${move.to}"]`,
+                    );
+                    if (squareEl) squareEl.classList.add("possible-move");
+                });
+            }
+
+            function clearHighlights() {
+                const squares = board.querySelectorAll(".square");
+                squares.forEach((square) => {
+                    square.classList.remove("selected", "possible-move");
+                });
+            }
+
+            function updateStatus() {
+                if (game.game_over()) {
+                    if (game.in_checkmate()) {
+                        statusEl.textContent =
+                            game.turn() === "w"
+                                ? "Checkmate! Black wins!"
+                                : "Checkmate! White wins!";
+                    } else if (game.in_draw()) {
+                        statusEl.textContent = "Game over. It's a draw!";
+                    } else if (game.in_stalemate()) {
+                        statusEl.textContent = "Game over. Stalemate!";
+                    }
+                } else {
+                    statusEl.textContent =
+                        game.turn() === "w" ? "White's turn" : "Black's turn";
+                }
+            }
+
+            function updatePGN() {
+                const pgn = game.pgn();
+                const formattedPGN = pgn.replace(/(\d+\.)/g, "<br>$1");
+                pgnContainer.innerHTML = formattedPGN;
+                pgnContainer.scrollTop = pgnContainer.scrollHeight;
+            }
+
+            function updateMoveCounter() {
+                moveCount = Math.floor((game.history().length + 1) / 2);
+                moveCounter.textContent = `Move: ${moveCount}`;
+            }
+
+            function restartGame() {
+                game = new Chess();
+                createBoard();
+                updateStatus();
+                selectedSquare = null;
+                lastMove = null;
+                moveCount = 1;
+                chatMessages.innerHTML = "";
+                pgnContainer.innerHTML = "";
+                updateMoveCounter();
+            }
+
+            // Chat functionality
+            async function handleChat() {
+                const message = chatText.value.trim();
+                if (message) {
+                    addChatMessage("You", message);
+                    chatText.value = "";
+
+                    try {
+                        const response = await fetch("/api/chat-response", {
+                            // Note: removed http://localhost:3000
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                            },
+                            body: JSON.stringify({
+                                message,
+                                fen: game.fen(),
+                                lastMove: lastMove ? lastMove.san : null,
+                            }),
+                        });
+
+                        if (!response.ok) {
+                            throw new Error("Failed to get chat response");
+                        }
+
+                        const data = await response.json();
+                        addChatMessage("GPT-4", data.reply);
+                    } catch (error) {
+                        console.error("Error getting chat response:", error);
+                        addChatMessage(
+                            "System",
+                            "Sorry, there was an error getting a response. Please try again.",
+                        );
+                    }
+                }
+            }
+
+            function addChatMessage(sender, message) {
+                const messageElement = document.createElement("p");
+                messageElement.innerHTML = `<strong>${sender}:</strong> ${message}`;
+                chatMessages.appendChild(messageElement);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+
+            // Event listeners
+            restartButton.addEventListener("click", restartGame);
+            chatSend.addEventListener("click", handleChat);
+            chatText.addEventListener("keypress", (e) => {
+                if (e.key === "Enter") handleChat();
+            });
+        </script>
+    </body>
+</html>
